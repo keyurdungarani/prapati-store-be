@@ -10,5 +10,6 @@ router.get('/list-orders-by-company', authUser, controller.getOrdersByCompany);
 router.put('/update-order/:id', authUser, controller.updateOrder);
 router.delete('/delete-order/:id', authUser, controller.deleteOrder);
 router.post('/generate-order-report', authUser, controller.generateOrderReport);
+router.post('/generate-order-report-pdf', authUser, controller.generateOrderReportPDF);
 
 module.exports = router;

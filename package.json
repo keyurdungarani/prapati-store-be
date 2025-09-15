@@ -19,6 +19,7 @@
     "jsonwebtoken": "^9.0.2",
     "moment": "^2.30.1",
     "mongoose": "^8.18.1",
-    "nodemon": "^3.1.10"
+    "nodemon": "^3.1.10",
+    "puppeteer": "^24.21.0"
   }
 }
