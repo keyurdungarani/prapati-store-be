@@ -23,6 +23,8 @@ app.use("/api/auth", require("./src/routes/authRoutes"));
 app.use("/api/company", require("./src/routes/companyRoutes"));
 app.use("/api/order", require("./src/routes/orderRoutes"));
 app.use("/api/return-order", require("./src/routes/returnOrderRoutes"));
+app.use("/api/kraftmailer", require("./src/routes/kraftMailerRoutes"));
+app.use("/api/taperoll", require("./src/routes/taprollRoutes"));
 
 // Connect to the database
 dbConnect();

@@ -9,5 +9,6 @@ router.get('/list-kraftmailers', authUser, controller.listKraftMailers);
 router.put('/update-kraftmailer/:id', authUser, controller.updateKraftMailer);
 router.delete('/delete-kraftmailer/:id', authUser, controller.deleteKraftMailer);
 router.post('/kraftmailer-report', authUser, controller.generateKraftMailerReport);
+router.post('/kraftmailer-report-pdf', authUser, controller.generateKraftMailerReportPDF);
 
 module.exports = router;

@@ -9,5 +9,6 @@ router.get('/list-taprolls', authUser, controller.listTaprolls);
 router.put('/update-taproll/:id', authUser, controller.updateTaproll);
 router.delete('/delete-taproll/:id', authUser, controller.deleteTaproll);
 router.post('/taproll-report', authUser, controller.generateTaprollReport);
+router.post('/taproll-report-pdf', authUser, controller.generateTaprollReportPDF);
 
 module.exports = router;
