@@ -59,7 +59,7 @@ module.exports = {
                 filter.date = { $gte: new Date(startDate), $lte: new Date(endDate) };
             }
 
-            const orders = await Order.find(filter);
+            const orders = await Order.find(filter).sort({ date: -1 });
 
             // Format the date to DD-MM-YYYY
             const formattedOrders = orders.map(order => ({
