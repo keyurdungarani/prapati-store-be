@@ -19,7 +19,7 @@ app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
 
 // API Routes
-app.get("/", (req, res) => {
+app.get("/api", (req, res) => {
     res.send("Prapatti Store Backend is running");
 });
 app.use("/api/auth", require("./src/routes/authRoutes"));
