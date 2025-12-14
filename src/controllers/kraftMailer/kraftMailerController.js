@@ -19,7 +19,7 @@ module.exports = {
 
 			const totalPrice = quantity * price;
 
-			const kraftMailer = new KraftMailer({ date, quantity, price, totalPrice, size });
+			const kraftMailer = new KraftMailer({ user: req.user.userId, date, quantity, price, totalPrice, size });
 			await kraftMailer.save();
 
 			return res.status(201).json({
@@ -39,7 +39,7 @@ module.exports = {
 	// List all kraftMailers
 	listKraftMailers: async (req, res) => {
 		try {
-			const kraftMailers = await KraftMailer.find();
+			const kraftMailers = await KraftMailer.find({ user: req.user.userId });
 			const formattedKraftMailers = kraftMailers.map(kraftMailer => ({
 				...kraftMailer._doc,
 				date: moment(kraftMailer.date).format('DD-MM-YYYY'),
@@ -78,8 +78,8 @@ module.exports = {
 				updateFields.totalPrice = quantity * price;
 			}
 
-			const kraftMailer = await KraftMailer.findByIdAndUpdate(
-				id,
+			const kraftMailer = await KraftMailer.findOneAndUpdate(
+				{ _id: id, user: req.user.userId },
 				updateFields,
 				{ new: true, runValidators: true }
 			);
@@ -109,7 +109,7 @@ module.exports = {
 	deleteKraftMailer: async (req, res) => {
 		try {
 			const { id } = req.params;
-			const kraftMailer = await KraftMailer.findByIdAndDelete(id);
+			const kraftMailer = await KraftMailer.findOneAndDelete({ _id: id, user: req.user.userId });
 			if (!kraftMailer) {
 				return res.status(404).json({
 					statusCode: 404,
@@ -147,6 +147,7 @@ module.exports = {
 
 			// Fetch kraftMailers in date range
 			const kraftMailers = await KraftMailer.find({
+				user: req.user.userId,
 				date: { $gte: startDate, $lte: endDate }
 			});
 
@@ -448,6 +449,7 @@ module.exports = {
 
 			// Fetch kraft mailers based on filter
 			const kraftMailers = await KraftMailer.find({
+				user: req.user.userId,
 				date: { $gte: startDate, $lte: endDate }
 			}).sort({ date: -1 });
 

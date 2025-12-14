@@ -14,7 +14,7 @@ module.exports = {
                 });
             }
 
-            const company = new Company({ name, platforms });
+            const company = new Company({ name, platforms, user: req.user.userId });
             await company.save();
 
             return res.status(201).json({
@@ -31,10 +31,10 @@ module.exports = {
         }
     },
 
-    // List all companies
+    // List all companies for the authenticated user
     listCompanies: async (req, res) => {
         try {
-            const companies = await Company.find();
+            const companies = await Company.find({ user: req.user.userId });
 
             return res.status(200).json({
                 statusCode: 200,
@@ -64,8 +64,8 @@ module.exports = {
                 });
             }
 
-            const company = await Company.findByIdAndUpdate(
-                id,
+            const company = await Company.findOneAndUpdate(
+                { _id: id, user: req.user.userId },
                 { name, platforms },
                 { new: true, runValidators: true }
             );
@@ -96,7 +96,7 @@ module.exports = {
         try {
             const { id } = req.params;
 
-            const company = await Company.findByIdAndDelete(id);
+            const company = await Company.findOneAndDelete({ _id: id, user: req.user.userId });
 
             if (!company) {
                 return res.status(404).json({

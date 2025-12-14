@@ -23,7 +23,7 @@ module.exports = {
                 });
             }
             const totalPrice = quantity * price;
-            const taproll = new Taproll({ date, quantity, price, totalPrice, platform });
+            const taproll = new Taproll({ user: req.user.userId, date, quantity, price, totalPrice, platform });
             await taproll.save();
             return res.status(201).json({
                 statusCode: 201,
@@ -41,7 +41,7 @@ module.exports = {
     // List all taprolls
     listTaprolls: async (req, res) => {
         try {
-            const taprolls = await Taproll.find();
+            const taprolls = await Taproll.find({ user: req.user.userId });
             const formattedTaprolls = taprolls.map(taproll => ({
                 ...taproll._doc,
                 date: moment(taproll.date).format('DD-MM-YYYY'),
@@ -87,8 +87,8 @@ module.exports = {
             if (typeof updateFields.quantity !== 'undefined' && typeof updateFields.price !== 'undefined') {
                 updateFields.totalPrice = updateFields.quantity * updateFields.price;
             }
-            const taproll = await Taproll.findByIdAndUpdate(
-                id,
+            const taproll = await Taproll.findOneAndUpdate(
+                { _id: id, user: req.user.userId },
                 updateFields,
                 { new: true, runValidators: true }
             );
@@ -115,7 +115,7 @@ module.exports = {
     deleteTaproll: async (req, res) => {
         try {
             const { id } = req.params;
-            const taproll = await Taproll.findByIdAndDelete(id);
+            const taproll = await Taproll.findOneAndDelete({ _id: id, user: req.user.userId });
             if (!taproll) {
                 return res.status(404).json({
                     statusCode: 404,
@@ -148,6 +148,7 @@ module.exports = {
                 endDate = new Date(endDate);
             }
             let filter = {
+                user: req.user.userId,
                 date: { $gte: startDate, $lte: endDate }
             };
             if (platform && VALID_PLATFORMS.includes(platform)) {
@@ -471,6 +472,7 @@ module.exports = {
 
             // Build filter query
             let filter = {
+                user: req.user.userId,
                 date: { $gte: startDate, $lte: endDate }
             };
 

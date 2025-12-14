@@ -22,6 +22,7 @@ module.exports = {
 
             // Create and save the return order
             const returnOrder = new ReturnOrder({
+                user: req.user.userId,
                 date,
                 product,
                 qty,
@@ -53,7 +54,7 @@ module.exports = {
     getReturnOrders: async (req, res) => {
         try {
             const { company, platforms, returnReason, returnBy, startDate, endDate } = req.query;
-            let filter = {};
+            let filter = { user: req.user.userId };
 
             if (company) filter.company = company;
             if (platforms) filter.platforms = platforms;
@@ -93,20 +94,24 @@ module.exports = {
 
             // Recalculate total price if qty or price is updated
             if (qty || price) {
-                const returnOrder = await ReturnOrder.findById(id);
-                if (!returnOrder) {
+                const existing = await ReturnOrder.findOne({ _id: id, user: req.user.userId });
+                if (!existing) {
                     return res.status(404).json({
                         statusCode: 404,
                         message: 'Return order not found',
                     });
                 }
 
-                const updatedQty = qty || returnOrder.qty;
-                const updatedPrice = price || returnOrder.price;
+                const updatedQty = qty || existing.qty;
+                const updatedPrice = price || existing.price;
                 req.body.totalPrice = updatedQty * updatedPrice;
             }
 
-            const returnOrder = await ReturnOrder.findByIdAndUpdate(id, req.body, { new: true, runValidators: true });
+            const returnOrder = await ReturnOrder.findOneAndUpdate(
+                { _id: id, user: req.user.userId },
+                req.body,
+                { new: true, runValidators: true }
+            );
 
             if (!returnOrder) {
                 return res.status(404).json({
@@ -134,7 +139,7 @@ module.exports = {
         try {
             const { id } = req.params;
 
-            const returnOrder = await ReturnOrder.findByIdAndDelete(id);
+            const returnOrder = await ReturnOrder.findOneAndDelete({ _id: id, user: req.user.userId });
 
             if (!returnOrder) {
                 return res.status(404).json({
@@ -173,6 +178,7 @@ module.exports = {
 
             // Build filter query
             let filter = {
+                user: req.user.userId,
                 date: { $gte: startDate, $lte: endDate }
             };
 
@@ -524,6 +530,7 @@ module.exports = {
 
             // Build filter query
             let filter = {
+                user: req.user.userId,
                 date: { $gte: startDate, $lte: endDate }
             };
 
