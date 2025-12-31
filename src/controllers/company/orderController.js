@@ -844,34 +844,72 @@ module.exports = {
             // Generate HTML content
             const htmlContent = module.exports.generateOrderReportHTML(orders, company, startDate, endDate);
 
-            // Launch browser and generate PDF
-            const browser = await puppeteer.launch({
-                headless: true,
-                args: ['--no-sandbox', '--disable-setuid-sandbox']
-            });
-            
-            const page = await browser.newPage();
-            await page.setContent(htmlContent, { waitUntil: 'networkidle0' });
-            
-            const pdfBuffer = await page.pdf({
-                format: 'A4',
-                margin: {
-                    top: '20mm',
-                    right: '15mm',
-                    bottom: '20mm',
-                    left: '15mm'
-                },
-                printBackground: true,
-                displayHeaderFooter: true,
-                headerTemplate: '<div></div>',
-                footerTemplate: `
-                    <div style="font-size: 10px; text-align: center; width: 100%; margin: 0 15mm;">
-                        <span class="pageNumber"></span> / <span class="totalPages"></span>
-                    </div>
-                `
-            });
+            let browser;
+            try {
+                // Launch browser and generate PDF
+                browser = await puppeteer.launch({
+                    headless: true,
+                    args: [
+                        '--no-sandbox',
+                        '--disable-setuid-sandbox',
+                        '--disable-dev-shm-usage',
+                        '--disable-gpu',
+                        '--disable-web-security',
+                        '--disable-features=VizDisplayCompositor'
+                    ],
+                    timeout: 60000 // 60 seconds timeout for browser launch
+                });
 
-            await browser.close();
+                const page = await browser.newPage();
+
+                // Optimize page for PDF generation
+                await page.setViewport({ width: 1200, height: 800 });
+                await page.setJavaScriptEnabled(false); // Disable JS since we don't need it for PDF
+                await page.setRequestInterception(true);
+
+                // Block unnecessary resources to speed up loading
+                page.on('request', (req) => {
+                    const resourceType = req.resourceType();
+                    if (resourceType === 'image' || resourceType === 'media' || resourceType === 'font') {
+                        // Allow fonts as they're used in the HTML
+                        if (resourceType === 'font') {
+                            req.continue();
+                        } else {
+                            req.abort();
+                        }
+                    } else {
+                        req.continue();
+                    }
+                });
+
+                // Set reasonable timeouts for page operations
+                await page.setDefaultTimeout(60000); // 60 seconds
+                await page.setDefaultNavigationTimeout(60000); // 60 seconds
+
+                // Since HTML is self-contained, use 'load' instead of 'networkidle0' to avoid waiting for network
+                await page.setContent(htmlContent, { waitUntil: 'load', timeout: 60000 });
+
+                const pdfBuffer = await page.pdf({
+                    format: 'A4',
+                    margin: {
+                        top: '20mm',
+                        right: '15mm',
+                        bottom: '20mm',
+                        left: '15mm'
+                    },
+                    printBackground: true,
+                    displayHeaderFooter: true,
+                    headerTemplate: '<div></div>',
+                    footerTemplate: `
+                        <div style="font-size: 10px; text-align: center; width: 100%; margin: 0 15mm;">
+                            <span class="pageNumber"></span> / <span class="totalPages"></span>
+                        </div>
+                    `,
+                    timeout: 60000 // 60 seconds timeout for PDF generation
+                });
+
+                await browser.close();
+                browser = null;
 
             // Set response headers
             const filename = company && company !== 'all' 
@@ -885,6 +923,15 @@ module.exports = {
             res.send(pdfBuffer);
 
         } catch (err) {
+            // Ensure browser is closed even if error occurs
+            if (browser) {
+                try {
+                    await browser.close();
+                } catch (closeErr) {
+                    console.error('Error closing browser:', closeErr);
+                }
+            }
+
             console.error('PDF generation error:', err);
             return res.status(500).json({
                 statusCode: 500,
@@ -892,5 +939,13 @@ module.exports = {
                 error: err.message
             });
         }
-    },
+    } catch (err) {
+        console.error('PDF generation error:', err);
+        return res.status(500).json({
+            statusCode: 500,
+            message: 'PDF generation failed',
+            error: err.message
+        });
+    }
+}
 };
