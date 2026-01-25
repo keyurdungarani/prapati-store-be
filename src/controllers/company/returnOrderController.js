@@ -69,7 +69,6 @@ module.exports = {
             // Format the date to DD-MM-YYYY
             const formattedReturnOrders = returnOrders.map(order => ({
                 ...order._doc,
-                date: moment(order.date).format('DD-MM-YYYY'),
             }));
 
             return res.status(200).json({

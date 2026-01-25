@@ -62,10 +62,9 @@ module.exports = {
 
             const orders = await Order.find(filter).sort({ date: -1 });
 
-            // Format the date to DD-MM-YYYY
+            // Dont Format the date 
             const formattedOrders = orders.map(order => ({
                 ...order._doc,
-                date: moment(order.date).format('DD-MM-YYYY'),
             }));
 
             return res.status(200).json({
@@ -431,7 +430,6 @@ module.exports = {
             const groupedOrders = orders.reduce((acc, order) => {
                 const formattedOrder = {
                     ...order._doc,
-                    date: moment(order.date).format('DD-MM-YYYY'),
                 };
                 
                 if (!acc[order.company]) {
