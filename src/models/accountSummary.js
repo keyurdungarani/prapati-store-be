@@ -20,7 +20,12 @@ const accountSummarySchema = new mongoose.Schema({
         required: true,
         default: 0
     },
-    returnOrders: {
+    returnDamagedOrders: {
+        type: Number,
+        required: true,
+        default: 0
+    },
+    returnDifferentOrders: {
         type: Number,
         required: true,
         default: 0
@@ -41,6 +46,11 @@ const accountSummarySchema = new mongoose.Schema({
         default: 0
     },
     totalReceivedPayment: {
+        type: Number,
+        required: true,
+        default: 0
+    },
+    pendingPayment: {
         type: Number,
         required: true,
         default: 0

@@ -13,8 +13,12 @@ const accountSummary = async (req, res) => {
             { $match: { user: new Types.ObjectId(req.user.userId), date: { $gte: new Date(fromDate), $lte: new Date(toDate) } } },
             { $group: { _id: null, totalPrice: { $sum: '$totalPrice' } } }
         ]);
-        const returnOrders = await returnOrder.aggregate([
-            { $match: { user: new Types.ObjectId(req.user.userId), date: { $gte: new Date(fromDate), $lte: new Date(toDate) }, returnReason: {$nin: ['OK']} } },
+        const returnDamagedOrders = await returnOrder.aggregate([
+            { $match: { user: new Types.ObjectId(req.user.userId), date: { $gte: new Date(fromDate), $lte: new Date(toDate) }, returnReason: 'Damaged' } },
+            { $group: { _id: null, totalPrice: { $sum: '$totalPrice' } } }
+        ]);
+        const returnDifferentOrders = await returnOrder.aggregate([
+            { $match: { user: new Types.ObjectId(req.user.userId), date: { $gte: new Date(fromDate), $lte: new Date(toDate) }, returnReason: 'Different' } },
             { $group: { _id: null, totalPrice: { $sum: '$totalPrice' } } }
         ]);
         const kraftMailers = await kraftMailer.aggregate([
@@ -28,7 +32,8 @@ const accountSummary = async (req, res) => {
     
         const summary = {
             orders: orders[0]?.totalPrice || 0,
-            returnOrders: returnOrders[0]?.totalPrice || 0,
+            returnDamagedOrders: returnDamagedOrders[0]?.totalPrice || 0,
+            returnDifferentOrders: returnDifferentOrders[0]?.totalPrice || 0,
             kraftMailers: kraftMailers[0]?.totalPrice || 0,
             taprolls: taprolls[0]?.totalPrice || 0,
         }
@@ -49,21 +54,23 @@ const accountSummary = async (req, res) => {
 
 const createAccountSummary = async (req, res) => {
     try {
-        const { fromDate, toDate, orders, returnOrders, kraftMailers, taprolls, totalReceivedPayment, officeExpenses } = req.body;
+        const { fromDate, toDate, orders, returnDamagedOrders, returnDifferentOrders, kraftMailers, taprolls, totalReceivedPayment, officeExpenses, pendingPayment } = req.body;
         
         // Calculate net income
-        const netIncome = totalReceivedPayment - (orders + kraftMailers + taprolls + returnOrders + officeExpenses);
+        const netIncome = totalReceivedPayment + pendingPayment - (orders + kraftMailers + taprolls + returnDamagedOrders + returnDifferentOrders + officeExpenses);
         
         const accountSummary = new accountSummaryModel({
             user: req.user.userId,
             fromDate: new Date(fromDate),
             toDate: new Date(toDate),
             orders: parseFloat(orders) || 0,
-            returnOrders: parseFloat(returnOrders) || 0,
+            returnDamagedOrders: parseFloat(returnDamagedOrders) || 0,
+            returnDifferentOrders: parseFloat(returnDifferentOrders) || 0,
             kraftMailers: parseFloat(kraftMailers) || 0,
             taprolls: parseFloat(taprolls) || 0,
             totalReceivedPayment: parseFloat(totalReceivedPayment) || 0,
             officeExpenses: parseFloat(officeExpenses) || 0,
+            pendingPayment: parseFloat(pendingPayment) || 0,
             netIncome: netIncome
         });
         
@@ -86,10 +93,10 @@ const createAccountSummary = async (req, res) => {
 const updateAccountSummary = async (req, res) => {
     try {
         const { id } = req.params;
-        const { fromDate, toDate, orders, returnOrders, kraftMailers, taprolls, totalReceivedPayment, officeExpenses } = req.body;
+        const { fromDate, toDate, orders, returnDamagedOrders, returnDifferentOrders, kraftMailers, taprolls, totalReceivedPayment, officeExpenses, pendingPayment } = req.body;
         
         // Calculate net income
-        const netIncome = totalReceivedPayment - (orders + kraftMailers + taprolls + returnOrders + officeExpenses);
+        const netIncome = totalReceivedPayment + pendingPayment - (orders + kraftMailers + taprolls + returnDamagedOrders + returnDifferentOrders + officeExpenses);
         
         const accountSummary = await accountSummaryModel.findOneAndUpdate(
             { _id: id, user: req.user.userId },
@@ -97,11 +104,13 @@ const updateAccountSummary = async (req, res) => {
                 fromDate: new Date(fromDate),
                 toDate: new Date(toDate),
                 orders: parseFloat(orders) || 0,
-                returnOrders: parseFloat(returnOrders) || 0,
+                returnDamagedOrders: parseFloat(returnDamagedOrders) || 0,
+                returnDifferentOrders: parseFloat(returnDifferentOrders) || 0,
                 kraftMailers: parseFloat(kraftMailers) || 0,
                 taprolls: parseFloat(taprolls) || 0,
                 totalReceivedPayment: parseFloat(totalReceivedPayment) || 0,
                 officeExpenses: parseFloat(officeExpenses) || 0,
+                pendingPayment: parseFloat(pendingPayment) || 0,
                 netIncome: netIncome
             },
             { new: true, runValidators: true }
