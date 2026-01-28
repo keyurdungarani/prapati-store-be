@@ -54,10 +54,10 @@ const accountSummary = async (req, res) => {
 
 const createAccountSummary = async (req, res) => {
     try {
-        const { fromDate, toDate, orders, returnDamagedOrders, returnDifferentOrders, kraftMailers, taprolls, totalReceivedPayment, officeExpenses, pendingPayment } = req.body;
+        const { fromDate, toDate, orders, returnDamagedOrders, returnDifferentOrders, productStock, kraftMailers, taprolls, totalReceivedPayment, officeExpenses, pendingPayment } = req.body;
         
         // Calculate net income
-        const netIncome = totalReceivedPayment + pendingPayment - (orders + kraftMailers + taprolls + returnDamagedOrders + returnDifferentOrders + officeExpenses);
+        const netIncome = totalReceivedPayment + pendingPayment - (orders + kraftMailers + taprolls + returnDamagedOrders + returnDifferentOrders + productStock + officeExpenses);
         
         const accountSummary = new accountSummaryModel({
             user: req.user.userId,
@@ -66,6 +66,7 @@ const createAccountSummary = async (req, res) => {
             orders: parseFloat(orders) || 0,
             returnDamagedOrders: parseFloat(returnDamagedOrders) || 0,
             returnDifferentOrders: parseFloat(returnDifferentOrders) || 0,
+            productStock: parseFloat(productStock) || 0,
             kraftMailers: parseFloat(kraftMailers) || 0,
             taprolls: parseFloat(taprolls) || 0,
             totalReceivedPayment: parseFloat(totalReceivedPayment) || 0,
@@ -93,10 +94,10 @@ const createAccountSummary = async (req, res) => {
 const updateAccountSummary = async (req, res) => {
     try {
         const { id } = req.params;
-        const { fromDate, toDate, orders, returnDamagedOrders, returnDifferentOrders, kraftMailers, taprolls, totalReceivedPayment, officeExpenses, pendingPayment } = req.body;
+        const { fromDate, toDate, orders, returnDamagedOrders, returnDifferentOrders, productStock, kraftMailers, taprolls, totalReceivedPayment, officeExpenses, pendingPayment } = req.body;
         
         // Calculate net income
-        const netIncome = totalReceivedPayment + pendingPayment - (orders + kraftMailers + taprolls + returnDamagedOrders + returnDifferentOrders + officeExpenses);
+        const netIncome = totalReceivedPayment + pendingPayment - (orders + kraftMailers + taprolls + returnDamagedOrders + returnDifferentOrders + productStock + officeExpenses);
         
         const accountSummary = await accountSummaryModel.findOneAndUpdate(
             { _id: id, user: req.user.userId },
@@ -106,6 +107,7 @@ const updateAccountSummary = async (req, res) => {
                 orders: parseFloat(orders) || 0,
                 returnDamagedOrders: parseFloat(returnDamagedOrders) || 0,
                 returnDifferentOrders: parseFloat(returnDifferentOrders) || 0,
+                productStock: parseFloat(productStock) || 0,
                 kraftMailers: parseFloat(kraftMailers) || 0,
                 taprolls: parseFloat(taprolls) || 0,
                 totalReceivedPayment: parseFloat(totalReceivedPayment) || 0,

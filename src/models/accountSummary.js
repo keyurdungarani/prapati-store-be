@@ -30,6 +30,11 @@ const accountSummarySchema = new mongoose.Schema({
         required: true,
         default: 0
     },
+    productStock: {
+        type: Number,
+        required: true,
+        default: 0
+    },
     kraftMailers: {
         type: Number,
         required: true,
