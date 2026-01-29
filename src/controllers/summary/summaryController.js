@@ -54,10 +54,7 @@ const accountSummary = async (req, res) => {
 
 const createAccountSummary = async (req, res) => {
     try {
-        const { fromDate, toDate, orders, returnDamagedOrders, returnDifferentOrders, productStock, kraftMailers, taprolls, totalReceivedPayment, officeExpenses, pendingPayment } = req.body;
-        
-        // Calculate net income
-        const netIncome = totalReceivedPayment + pendingPayment - (orders + kraftMailers + taprolls + returnDamagedOrders + returnDifferentOrders + productStock + officeExpenses);
+        const { fromDate, toDate, orders, returnDamagedOrders, returnDifferentOrders, productStock, kraftMailers, taprolls, totalReceivedPayment, officeExpenses, pendingPayment, netIncome = 0 } = req.body;
         
         const accountSummary = new accountSummaryModel({
             user: req.user.userId,
@@ -72,7 +69,7 @@ const createAccountSummary = async (req, res) => {
             totalReceivedPayment: parseFloat(totalReceivedPayment) || 0,
             officeExpenses: parseFloat(officeExpenses) || 0,
             pendingPayment: parseFloat(pendingPayment) || 0,
-            netIncome: netIncome
+            netIncome: parseFloat(netIncome) || 0
         });
         
         await accountSummary.save();
@@ -94,10 +91,7 @@ const createAccountSummary = async (req, res) => {
 const updateAccountSummary = async (req, res) => {
     try {
         const { id } = req.params;
-        const { fromDate, toDate, orders, returnDamagedOrders, returnDifferentOrders, productStock, kraftMailers, taprolls, totalReceivedPayment, officeExpenses, pendingPayment } = req.body;
-        
-        // Calculate net income
-        const netIncome = totalReceivedPayment + pendingPayment - (orders + kraftMailers + taprolls + returnDamagedOrders + returnDifferentOrders + productStock + officeExpenses);
+        const { fromDate, toDate, orders, returnDamagedOrders, returnDifferentOrders, productStock, kraftMailers, taprolls, totalReceivedPayment, officeExpenses, pendingPayment, netIncome = 0 } = req.body;
         
         const accountSummary = await accountSummaryModel.findOneAndUpdate(
             { _id: id, user: req.user.userId },
@@ -113,7 +107,7 @@ const updateAccountSummary = async (req, res) => {
                 totalReceivedPayment: parseFloat(totalReceivedPayment) || 0,
                 officeExpenses: parseFloat(officeExpenses) || 0,
                 pendingPayment: parseFloat(pendingPayment) || 0,
-                netIncome: netIncome
+                netIncome: parseFloat(netIncome) || 0
             },
             { new: true, runValidators: true }
         );
