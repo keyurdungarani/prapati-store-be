@@ -206,11 +206,147 @@ const deleteAccountSummary = async (req, res) => {
     }
 };
 
+const downloadAccountSummary = async (req, res) => {
+    try {
+        const { ids } = req.body;
+        if (!ids || !Array.isArray(ids) || ids.length === 0) {
+            return res.status(400).json({
+                statusCode: 400,
+                message: 'Account summary IDs are required',
+            });
+        }
+
+        const summaries = await accountSummaryModel.find({
+            _id: { $in: ids },
+            user: req.user.userId
+        }).sort({ fromDate: 1 });
+
+        if (summaries.length === 0) {
+            return res.status(404).json({
+                statusCode: 404,
+                message: 'No account summaries found',
+            });
+        }
+
+        const moment = require('moment');
+        const puppeteer = require('puppeteer');
+
+        const html = `
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <meta charset="UTF-8">
+            <title>Account Summaries Report</title>
+            <style>
+                body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; padding: 20px; background-color: #f8f9fa; }
+                .container { max-width: 1200px; margin: 0 auto; background: white; padding: 30px; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+                .header { text-align: center; margin-bottom: 30px; border-bottom: 3px solid #008080; padding-bottom: 20px; }
+                h1 { color: #008080; margin: 0; font-size: 28px; }
+                .report-info { display: flex; justify-content: space-between; margin-bottom: 25px; color: #555; font-size: 14px; }
+                .summary-card { border: 1px solid #ddd; border-radius: 8px; margin-bottom: 40px; overflow: hidden; page-break-inside: avoid; }
+                .card-header { bg-color: #008080; color: white; padding: 12px 20px; font-weight: bold; display: flex; justify-content: space-between; background-color: #008080; }
+                .card-body { padding: 20px; }
+                table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+                th, td { border: 1px solid #e0e0e0; padding: 12px 15px; text-align: left; }
+                th { background-color: #f1f8f8; color: #008080; font-weight: 600; width: 60%; }
+                td { color: #333; font-weight: 500; }
+                .amount { text-align: right; font-family: 'Courier New', Courier, monospace; }
+                .net-income { margin-top: 15px; padding: 15px; border-radius: 6px; display: flex; justify-content: space-between; align-items: center; }
+                .positive { background-color: #e8f5e9; border: 1px solid #c8e6c9; color: #2e7d32; }
+                .negative { background-color: #ffebee; border: 1px solid #ffcdd2; color: #c62828; }
+                .income-label { font-weight: bold; font-size: 18px; }
+                .income-value { font-size: 20px; font-weight: 800; }
+                .footer { text-align: center; margin-top: 40px; color: #888; font-size: 12px; border-top: 1px solid #eee; padding-top: 20px; }
+                .badge { padding: 4px 8px; border-radius: 4px; font-size: 12px; font-weight: bold; text-transform: uppercase; }
+                .badge-profit { background: #c8e6c9; color: #2e7d32; }
+                .badge-loss { background: #ffcdd2; color: #c62828; }
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <div class="header">
+                    <h1>Prapatti Store</h1>
+                    <p style="color: #666; margin-top: 5px;">Account Summaries Report</p>
+                </div>
+                
+                <div class="report-info">
+                    <div>Generated on: ${moment().format('DD MMMM YYYY, h:mm A')}</div>
+                    <div>Statements Count: ${summaries.length}</div>
+                </div>
+
+                ${summaries.map(summary => `
+                    <div class="summary-card">
+                        <div class="card-header">
+                            <span>Period: ${moment(summary.fromDate).format('DD MMM YYYY')} - ${moment(summary.toDate).format('DD MMM YYYY')}</span>
+                            <span class="badge ${summary.netIncome >= 0 ? 'badge-profit' : 'badge-loss'}">
+                                ${summary.netIncome >= 0 ? 'Profit' : 'Loss'}
+                            </span>
+                        </div>
+                        <div class="card-body">
+                            <table>
+                                <tr><th>Orders Total</th><td class="amount">₹${summary.orders.toFixed(2)}</td></tr>
+                                <tr><th>Kraft Mailers</th><td class="amount">₹${summary.kraftMailers.toFixed(2)}</td></tr>
+                                <tr><th>Taprolls</th><td class="amount">₹${summary.taprolls.toFixed(2)}</td></tr>
+                                <tr><th>Office Expenses</th><td class="amount">₹${summary.officeExpenses.toFixed(2)}</td></tr>
+                                <tr><th>Product Stock (Credit)</th><td class="amount">₹${summary.productStock.toFixed(2)}</td></tr>
+                                <tr><th>Return Damaged Amount</th><td class="amount">₹${summary.returnDamagedOrders.toFixed(2)}</td></tr>
+                                <tr><th>Return Different Amount</th><td class="amount">₹${summary.returnDifferentOrders.toFixed(2)}</td></tr>
+                                <tr><th>Total Received Bank Payment</th><td class="amount">₹${summary.totalReceivedPayment.toFixed(2)}</td></tr>
+                                <tr><th>Pending Payment</th><td class="amount">₹${summary.pendingPayment.toFixed(2)}</td></tr>
+                            </table>
+                            
+                            <div class="net-income ${summary.netIncome >= 0 ? 'positive' : 'negative'}">
+                                <span class="income-label">Net Income</span>
+                                <span class="income-value">₹${summary.netIncome.toFixed(2)}</span>
+                            </div>
+                        </div>
+                    </div>
+                `).join('')}
+
+                <div class="footer">
+                    <p>© ${moment().format('YYYY')} Prapatti Store. All rights reserved.</p>
+                    <p>This is a computer-generated document.</p>
+                </div>
+            </div>
+        </body>
+        </html>
+        `;
+
+        const browser = await puppeteer.launch({
+            headless: 'new',
+            args: ['--no-sandbox', '--disable-setuid-sandbox']
+        });
+        const page = await browser.newPage();
+        await page.setContent(html, { waitUntil: 'networkidle0' });
+        
+        const pdfBuffer = await page.pdf({
+            format: 'A4',
+            printBackground: true,
+            margin: { top: '20mm', right: '20mm', bottom: '20mm', left: '20mm' }
+        });
+
+        await browser.close();
+
+        res.setHeader('Content-Type', 'application/pdf');
+        res.setHeader('Content-Disposition', 'attachment; filename=account_summaries_report.pdf');
+        res.send(pdfBuffer);
+
+    } catch (error) {
+        console.error('PDF Generation Error:', error);
+        return res.status(500).json({
+            statusCode: 500,
+            message: 'Failed to generate PDF',
+            error: error.message,
+        });
+    }
+};
+
 module.exports = { 
     accountSummary,
     createAccountSummary,
     updateAccountSummary,
     listAccountSummaries,
     getAccountSummary,
-    deleteAccountSummary
+    deleteAccountSummary,
+    downloadAccountSummary
 };

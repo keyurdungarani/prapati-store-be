@@ -9,5 +9,6 @@ router.put('/account-summary/:id', authUser, controller.updateAccountSummary);
 router.get('/account-summaries', authUser, controller.listAccountSummaries);
 router.get('/account-summary/:id', authUser, controller.getAccountSummary);
 router.delete('/account-summary/:id', authUser, controller.deleteAccountSummary);
+router.post('/download-account-summary', authUser, controller.downloadAccountSummary);
 
 module.exports = router;
