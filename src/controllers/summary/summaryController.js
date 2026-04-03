@@ -288,11 +288,11 @@ const downloadAccountSummary = async (req, res) => {
                                 <tr><th>Kraft Mailers</th><td class="amount">₹${summary.kraftMailers.toFixed(2)}</td></tr>
                                 <tr><th>Taprolls</th><td class="amount">₹${summary.taprolls.toFixed(2)}</td></tr>
                                 <tr><th>Office Expenses</th><td class="amount">₹${summary.officeExpenses.toFixed(2)}</td></tr>
-                                <tr><th>Product Stock (Credit)</th><td class="amount">₹${summary.productStock.toFixed(2)}</td></tr>
-                                <tr><th>Return Damaged Amount</th><td class="amount">₹${summary.returnDamagedOrders.toFixed(2)}</td></tr>
-                                <tr><th>Return Different Amount</th><td class="amount">₹${summary.returnDifferentOrders.toFixed(2)}</td></tr>
+                                <tr><th>Product Stock (Credit)</th><td class="amount">-₹${summary.productStock.toFixed(2)}</td></tr>
                                 <tr><th>Total Received Bank Payment</th><td class="amount">₹${summary.totalReceivedPayment.toFixed(2)}</td></tr>
                                 <tr><th>Pending Payment</th><td class="amount">₹${summary.pendingPayment.toFixed(2)}</td></tr>
+                                <tr><th>Return Damaged Amount</th><td class="amount">₹${summary.returnDamagedOrders.toFixed(2)}</td></tr>
+                                <tr><th>Return Different Amount</th><td class="amount">₹${summary.returnDifferentOrders.toFixed(2)}</td></tr>
                             </table>
                             
                             <div class="net-income ${summary.netIncome >= 0 ? 'positive' : 'negative'}">
@@ -305,7 +305,6 @@ const downloadAccountSummary = async (req, res) => {
 
                 <div class="footer">
                     <p>© ${moment().format('YYYY')} Prapatti Store. All rights reserved.</p>
-                    <p>This is a computer-generated document.</p>
                 </div>
             </div>
         </body>
