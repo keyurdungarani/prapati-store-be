@@ -1,7 +1,8 @@
 const Order = require('../../models/order');
 const ExcelJS = require('exceljs');
 const moment = require('moment');
-const puppeteer = require('puppeteer');
+const { renderPdf, sendPdf, sendPdfError } = require('../../utils/pdfService');
+const layout = require('../../utils/reportLayout');
 
 module.exports = {
     // Create a new order
@@ -407,6 +408,10 @@ module.exports = {
             res.end();
 
         } catch (err) {
+            // The workbook streams straight into the response, so once it has
+            // started there are no headers left to replace with a JSON error.
+            if (res.headersSent) return res.destroy();
+
             return res.status(500).json({
                 statusCode: 500,
                 message: 'Internal Server Error',
@@ -463,352 +468,106 @@ module.exports = {
         }
     },
 
-    // Helper function to generate HTML for PDF
-    generateOrderReportHTML: (orders, company, startDate, endDate) => {
+    // Build the pdfmake document definition for the orders report
+    buildOrderReportDocument: (orders, company, startDate, endDate) => {
         const isCompanySpecific = company && company !== 'all';
-        const reportTitle = isCompanySpecific ? `${company.toUpperCase()} ORDERS REPORT` : 'ALL COMPANIES ORDERS REPORT';
-        const dateRange = startDate && endDate ? 
-            `${moment(startDate).format('DD-MM-YYYY')} to ${moment(endDate).format('DD-MM-YYYY')}` : 
-            'All Time';
+        const reportTitle = isCompanySpecific
+            ? `${company.toUpperCase()} ORDERS REPORT`
+            : 'ALL COMPANIES ORDERS REPORT';
+        const dateRange = layout.dateRangeLabel(startDate, endDate);
+        const accent = layout.ACCENT.orders;
 
-        let html = `
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <meta charset="UTF-8">
-            <title>${reportTitle}</title>
-            <style>
-                body { 
-                    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
-                    margin: 0; 
-                    padding: 20px; 
-                    background-color: #f8f9fa;
-                }
-                .container { 
-                    max-width: 1200px; 
-                    margin: 0 auto; 
-                    background: white; 
-                    padding: 30px; 
-                    border-radius: 10px; 
-                    box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-                }
-                .header { 
-                    text-align: center; 
-                    margin-bottom: 30px; 
-                    border-bottom: 3px solid #008080; 
-                    padding-bottom: 20px;
-                }
-                .header h1 { 
-                    color: #008080; 
-                    margin: 0; 
-                    font-size: 28px; 
-                    font-weight: bold;
-                }
-                .header .date-range { 
-                    color: #666; 
-                    margin-top: 8px; 
-                    font-size: 14px;
-                }
-                .company-section { 
-                    margin-bottom: 40px; 
-                }
-                .company-header { 
-                    background: linear-gradient(135deg, #008080, #20b2aa); 
-                    color: white; 
-                    padding: 15px 20px; 
-                    border-radius: 8px; 
-                    margin-bottom: 15px;
-                    display: flex;
-                    justify-content: space-between;
-                    align-items: center;
-                }
-                .company-header h2 { 
-                    margin: 0; 
-                    font-size: 20px;
-                }
-                .company-stats { 
-                    font-size: 12px; 
-                    opacity: 0.9;
-                }
-                table { 
-                    width: 100%; 
-                    border-collapse: collapse; 
-                    margin-bottom: 20px; 
-                    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-                    border-radius: 8px;
-                    overflow: hidden;
-                }
-                th { 
-                    background: #f8f9fa; 
-                    color: #333; 
-                    font-weight: bold; 
-                    padding: 12px 8px; 
-                    text-align: left; 
-                    font-size: 12px;
-                    border-bottom: 2px solid #dee2e6;
-                }
-                td { 
-                    padding: 10px 8px; 
-                    border-bottom: 1px solid #dee2e6; 
-                    font-size: 11px;
-                }
-                tr:nth-child(even) { 
-                    background-color: #f8f9fa; 
-                }
-                tr:hover { 
-                    background-color: #e3f2fd; 
-                }
-                .total-row { 
-                    background: #e8f5e8 !important; 
-                    font-weight: bold; 
-                    color: #2e7d32;
-                }
-                .grand-total-row { 
-                    background: #4caf50 !important; 
-                    color: white !important; 
-                    font-weight: bold;
-                }
-                .amount { 
-                    text-align: right; 
-                    font-weight: 500;
-                }
-                .platforms { 
-                    font-size: 10px; 
-                    color: #666;
-                }
-                .summary-cards {
-                    display: flex;
-                    justify-content: space-around;
-                    margin: 20px 0;
-                    gap: 15px;
-                }
-                .summary-card {
-                    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-                    color: white;
-                    padding: 15px;
-                    border-radius: 8px;
-                    text-align: center;
-                    flex: 1;
-                }
-                .summary-card h3 {
-                    margin: 0 0 5px 0;
-                    font-size: 14px;
-                    opacity: 0.9;
-                }
-                .summary-card .value {
-                    font-size: 18px;
-                    font-weight: bold;
-                }
-                .footer {
-                    text-align: center;
-                    margin-top: 30px;
-                    padding-top: 20px;
-                    border-top: 1px solid #dee2e6;
-                    color: #666;
-                    font-size: 12px;
-                }
-            </style>
-        </head>
-        <body>
-            <div class="container">
-                <div class="header">
-                    <h1>${reportTitle}</h1>
-                    <div class="date-range">Period: ${dateRange}</div>
-                    <div class="date-range">Generated on: ${moment().format('DD-MM-YYYY HH:mm:ss')}</div>
-                </div>
-        `;
+        const columns = [
+            { header: 'Date', width: 58 },
+            { header: 'Product', width: '*' },
+            { header: 'Quantity', width: 46, align: 'center' },
+            { header: 'Price', width: 58, align: 'right' },
+            { header: 'Total', width: 62, align: 'right' },
+            { header: 'Platforms', width: 84 },
+        ];
+
+        const toRow = (order) => [
+            layout.formatDate(order.date),
+            order.product,
+            layout.count(order.qty),
+            layout.money(order.price),
+            layout.money(order.totalPrice),
+            Array.isArray(order.platforms) ? order.platforms.join(', ') : (order.platforms || ''),
+        ];
+
+        const sum = (list, key) => list.reduce((acc, item) => acc + (Number(item[key]) || 0), 0);
+
+        // TOTAL / SUBTOTAL rows share the same shape across every block.
+        const totalsRow = (label, list) => [
+            ...layout.totalCell(label, { colSpan: 2 }),
+            { text: layout.count(sum(list, 'qty')), bold: true, alignment: 'center' },
+            { text: layout.money(sum(list, 'price')), bold: true, alignment: 'right' },
+            { text: layout.money(sum(list, 'totalPrice')), bold: true, alignment: 'right' },
+            { text: '' },
+        ];
+
+        const content = layout.reportHeader(reportTitle, accent, [
+            `Period: ${dateRange}`,
+            `Generated on: ${moment().format('DD-MM-YYYY HH:mm:ss')}`,
+        ]);
 
         if (isCompanySpecific) {
-            // Company-specific report
-            let totalQty = 0;
-            let totalAmount = 0;
+            content.push(layout.summaryCards([
+                { label: 'Total Orders', value: String(orders.length) },
+                { label: 'Total Quantity', value: layout.count(sum(orders, 'qty')) },
+                { label: 'Total Revenue', value: layout.money(sum(orders, 'totalPrice')) },
+            ], accent));
 
-            orders.forEach(order => {
-                totalQty += order.qty;
-                totalAmount += order.totalPrice;
-            });
-
-            html += `
-                <div class="summary-cards">
-                    <div class="summary-card">
-                        <h3>Total Orders</h3>
-                        <div class="value">${orders.length}</div>
-                    </div>
-                    <div class="summary-card">
-                        <h3>Total Quantity</h3>
-                        <div class="value">${totalQty}</div>
-                    </div>
-                    <div class="summary-card">
-                        <h3>Total Revenue</h3>
-                        <div class="value">₹${totalAmount.toFixed(2)}</div>
-                    </div>
-                </div>
-
-                <table>
-                    <thead>
-                        <tr>
-                            <th>Date</th>
-                            <th>Product</th>
-                            <th>Quantity</th>
-                            <th>Price</th>
-                            <th>Total</th>
-                            <th>Platforms</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-            `;
-
-            orders.forEach(order => {
-                html += `
-                    <tr>
-                        <td>${moment(order.date).format('DD-MM-YYYY')}</td>
-                        <td>${order.product}</td>
-                        <td>${order.qty}</td>
-                        <td class="amount">₹${order.price}</td>
-                        <td class="amount">₹${order.totalPrice}</td>
-                        <td class="platforms">${Array.isArray(order.platforms) ? order.platforms.join(', ') : order.platforms}</td>
-                    </tr>
-                `;
-            });
-
-            html += `
-                    <tr class="total-row">
-                        <td colspan="2"><strong>TOTAL</strong></td>
-                        <td><strong>${totalQty}</strong></td>
-                        <td class="amount"><strong>₹${orders.reduce((sum, order) => sum + order.price, 0).toFixed(2)}</strong></td>
-                        <td class="amount"><strong>₹${totalAmount.toFixed(2)}</strong></td>
-                        <td></td>
-                    </tr>
-                </tbody>
-                </table>
-            `;
+            content.push(layout.dataTable({
+                columns,
+                rows: orders.map(toRow),
+                totalRow: totalsRow('TOTAL', orders),
+                accent,
+            }));
         } else {
-            // All companies report with grouping
-            const groupedOrders = orders.reduce((acc, order) => {
-                if (!acc[order.company]) {
-                    acc[order.company] = [];
-                }
-                acc[order.company].push(order);
+            const grouped = orders.reduce((acc, order) => {
+                const key = order.company || 'UNSPECIFIED';
+                (acc[key] = acc[key] || []).push(order);
                 return acc;
             }, {});
 
-            let grandTotalQty = 0;
-            let grandTotalAmount = 0;
+            content.push(layout.summaryCards([
+                { label: 'Total Companies', value: String(Object.keys(grouped).length) },
+                { label: 'Total Orders', value: String(orders.length) },
+                { label: 'Total Quantity', value: layout.count(sum(orders, 'qty')) },
+                { label: 'Total Revenue', value: layout.money(sum(orders, 'totalPrice')) },
+            ], accent));
 
-            // Summary cards for all companies
-            const totalOrders = orders.length;
-            const totalCompanies = Object.keys(groupedOrders).length;
-            orders.forEach(order => {
-                grandTotalQty += order.qty;
-                grandTotalAmount += order.totalPrice;
+            Object.entries(grouped).forEach(([companyName, companyOrders]) => {
+                const stats = [
+                    `Orders: ${companyOrders.length}`,
+                    `Qty: ${layout.count(sum(companyOrders, 'qty'))}`,
+                    `Revenue: ${layout.money(sum(companyOrders, 'totalPrice'))}`,
+                ].join('   |   ');
+
+                content.push(layout.sectionHeading(companyName, accent, stats));
+                content.push(layout.dataTable({
+                    columns,
+                    rows: companyOrders.map(toRow),
+                    totalRow: totalsRow(`${companyName} SUBTOTAL`, companyOrders),
+                    accent,
+                }));
             });
 
-            html += `
-                <div class="summary-cards">
-                    <div class="summary-card">
-                        <h3>Total Companies</h3>
-                        <div class="value">${totalCompanies}</div>
-                    </div>
-                    <div class="summary-card">
-                        <h3>Total Orders</h3>
-                        <div class="value">${totalOrders}</div>
-                    </div>
-                    <div class="summary-card">
-                        <h3>Total Quantity</h3>
-                        <div class="value">${grandTotalQty}</div>
-                    </div>
-                    <div class="summary-card">
-                        <h3>Total Revenue</h3>
-                        <div class="value">₹${grandTotalAmount.toFixed(2)}</div>
-                    </div>
-                </div>
-            `;
-
-            Object.entries(groupedOrders).forEach(([companyName, companyOrders]) => {
-                let companyQty = 0;
-                let companyAmount = 0;
-
-                companyOrders.forEach(order => {
-                    companyQty += order.qty;
-                    companyAmount += order.totalPrice;
-                });
-
-                html += `
-                    <div class="company-section">
-                        <div class="company-header">
-                            <h2>${companyName}</h2>
-                            <div class="company-stats">
-                                <div>Orders: ${companyOrders.length} | Qty: ${companyQty} | Revenue: ₹${companyAmount.toFixed(2)}</div>
-                            </div>
-                        </div>
-                        <table>
-                            <thead>
-                                <tr>
-                                    <th>Date</th>
-                                    <th>Product</th>
-                                    <th>Quantity</th>
-                                    <th>Price</th>
-                                    <th>Total</th>
-                                    <th>Platforms</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                `;
-
-                companyOrders.forEach(order => {
-                    html += `
-                        <tr>
-                            <td>${moment(order.date).format('DD-MM-YYYY')}</td>
-                            <td>${order.product}</td>
-                            <td>${order.qty}</td>
-                            <td class="amount">₹${order.price}</td>
-                            <td class="amount">₹${order.totalPrice}</td>
-                            <td class="platforms">${Array.isArray(order.platforms) ? order.platforms.join(', ') : order.platforms}</td>
-                        </tr>
-                    `;
-                });
-
-                html += `
-                            <tr class="total-row">
-                                <td colspan="2"><strong>${companyName} SUBTOTAL</strong></td>
-                                <td><strong>${companyQty}</strong></td>
-                                <td class="amount"><strong>₹${companyOrders.reduce((sum, order) => sum + order.price, 0).toFixed(2)}</strong></td>
-                                <td class="amount"><strong>₹${companyAmount.toFixed(2)}</strong></td>
-                                <td></td>
-                            </tr>
-                        </tbody>
-                        </table>
-                    </div>
-                `;
-            });
-
-            // Grand total
-            html += `
-                <table style="margin-top: 20px;">
-                    <tbody>
-                        <tr class="grand-total-row">
-                            <td colspan="2"><strong>GRAND TOTAL</strong></td>
-                            <td><strong>${grandTotalQty}</strong></td>
-                            <td class="amount"><strong>₹${orders.reduce((sum, order) => sum + order.price, 0).toFixed(2)}</strong></td>
-                            <td class="amount"><strong>₹${grandTotalAmount.toFixed(2)}</strong></td>
-                            <td></td>
-                        </tr>
-                    </tbody>
-                </table>
-            `;
+            if (orders.length) {
+                content.push(layout.dataTable({
+                    columns,
+                    rows: [],
+                    totalRow: totalsRow('GRAND TOTAL', orders),
+                    accent,
+                    showHeader: false,
+                }));
+            }
         }
 
-        html += `
-                <div class="footer">
-                    <p>This report was generated automatically by Prapatti Store Admin System</p>
-                    <p>For any queries, please contact the administration team</p>
-                </div>
-            </div>
-        </body>
-        </html>
-        `;
+        content.push(layout.reportFooter());
 
-        return html;
+        return layout.documentShell({ title: reportTitle, content });
     },
 
     // Generate PDF report
@@ -839,111 +598,19 @@ module.exports = {
             // Fetch orders based on filter
             const orders = await Order.find(filter).sort({ date: -1 });
 
-            // Generate HTML content
-            const htmlContent = module.exports.generateOrderReportHTML(orders, company, startDate, endDate);
-
-            let browser;
-            try {
-                // Launch browser and generate PDF
-                browser = await puppeteer.launch({
-                    headless: true,
-                    args: [
-                        '--no-sandbox',
-                        '--disable-setuid-sandbox',
-                        '--disable-dev-shm-usage',
-                        '--disable-gpu',
-                        '--disable-web-security',
-                        '--disable-features=VizDisplayCompositor'
-                    ],
-                    timeout: 60000 // 60 seconds timeout for browser launch
-                });
-
-                const page = await browser.newPage();
-
-                // Optimize page for PDF generation
-                await page.setViewport({ width: 1200, height: 800 });
-                await page.setJavaScriptEnabled(false); // Disable JS since we don't need it for PDF
-                await page.setRequestInterception(true);
-
-                // Block unnecessary resources to speed up loading
-                page.on('request', (req) => {
-                    const resourceType = req.resourceType();
-                    if (resourceType === 'image' || resourceType === 'media' || resourceType === 'font') {
-                        // Allow fonts as they're used in the HTML
-                        if (resourceType === 'font') {
-                            req.continue();
-                        } else {
-                            req.abort();
-                        }
-                    } else {
-                        req.continue();
-                    }
-                });
-
-                // Set reasonable timeouts for page operations
-                await page.setDefaultTimeout(60000); // 60 seconds
-                await page.setDefaultNavigationTimeout(60000); // 60 seconds
-
-                // Since HTML is self-contained, use 'load' instead of 'networkidle0' to avoid waiting for network
-                await page.setContent(htmlContent, { waitUntil: 'load', timeout: 60000 });
-
-                const pdfBuffer = await page.pdf({
-                    format: 'A4',
-                    margin: {
-                        top: '20mm',
-                        right: '15mm',
-                        bottom: '20mm',
-                        left: '15mm'
-                    },
-                    printBackground: true,
-                    displayHeaderFooter: true,
-                    headerTemplate: '<div></div>',
-                    footerTemplate: `
-                        <div style="font-size: 10px; text-align: center; width: 100%; margin: 0 15mm;">
-                            <span class="pageNumber"></span> / <span class="totalPages"></span>
-                        </div>
-                    `,
-                    timeout: 60000 // 60 seconds timeout for PDF generation
-                });
-
-                await browser.close();
-                browser = null;
+            // Build the document definition and render it with pdfmake
+            const docDefinition = module.exports.buildOrderReportDocument(orders, company, startDate, endDate);
+            const pdfBuffer = await renderPdf(docDefinition);
 
             // Set response headers
             const filename = company && company !== 'all' 
                 ? `${company.replace(/[^a-zA-Z0-9]/g, '_')}_orders_report.pdf`
                 : "all_companies_orders_report.pdf";
 
-            res.setHeader('Content-Type', 'application/pdf');
-            res.setHeader('Content-Disposition', `attachment; filename=${filename}`);
-            res.setHeader('Content-Length', pdfBuffer.length);
-
-            res.send(pdfBuffer);
+            sendPdf(res, pdfBuffer, filename);
 
         } catch (err) {
-            // Ensure browser is closed even if error occurs
-            if (browser) {
-                try {
-                    await browser.close();
-                } catch (closeErr) {
-                    console.error('Error closing browser:', closeErr);
-                }
-            }
-
-            console.error('PDF generation error:', err);
-            return res.status(500).json({
-                statusCode: 500,
-                message: 'PDF generation failed',
-                error: err.message
-            });
+            return sendPdfError(res, err, 'Order report PDF');
         }
-    } catch (err) {
-        console.error('PDF generation error:', err);
-        return res.status(500).json({
-            statusCode: 500,
-            message: 'PDF generation failed',
-            error: err.message
-        });
     }
-}
 };

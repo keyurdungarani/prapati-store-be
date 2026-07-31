@@ -1,7 +1,8 @@
 const ReturnOrder = require('../../models/returnOrder');
 const ExcelJS = require('exceljs');
 const moment = require('moment');
-const puppeteer = require('puppeteer');
+const { renderPdf, sendPdf, sendPdfError } = require('../../utils/pdfService');
+const layout = require('../../utils/reportLayout');
 
 module.exports = {
     // Create a new return order
@@ -278,6 +279,10 @@ module.exports = {
             res.end();
 
         } catch (err) {
+            // The workbook streams straight into the response, so once it has
+            // started there are no headers left to replace with a JSON error.
+            if (res.headersSent) return res.destroy();
+
             return res.status(500).json({
                 statusCode: 500,
                 message: 'Internal Server Error',
@@ -285,231 +290,78 @@ module.exports = {
         }
     },
 
-    // Helper function to generate HTML for PDF
-    generateReturnOrderReportHTML: (returnOrders, filters, startDate, endDate) => {
-        const dateRange = startDate && endDate ? 
-            `${moment(startDate).format('DD-MM-YYYY')} to ${moment(endDate).format('DD-MM-YYYY')}` : 
-            'All Time';
+    // Build the pdfmake document definition for the return orders report
+    buildReturnOrderReportDocument: (returnOrders, filters, startDate, endDate) => {
+        const dateRange = layout.dateRangeLabel(startDate, endDate);
+        const accent = layout.ACCENT.returns;
 
-        let html = `
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <meta charset="UTF-8">
-            <title>RETURN ORDERS REPORT</title>
-            <style>
-                body { 
-                    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
-                    margin: 0; 
-                    padding: 20px; 
-                    background-color: #f8f9fa;
-                }
-                .container { 
-                    max-width: 1400px; 
-                    margin: 0 auto; 
-                    background: white; 
-                    padding: 30px; 
-                    border-radius: 10px; 
-                    box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-                }
-                .header { 
-                    text-align: center; 
-                    margin-bottom: 30px; 
-                    border-bottom: 3px solid #FF6B6B; 
-                    padding-bottom: 20px;
-                }
-                .header h1 { 
-                    color: #FF6B6B; 
-                    margin: 0; 
-                    font-size: 28px; 
-                    font-weight: bold;
-                }
-                .header .date-range { 
-                    color: #666; 
-                    margin-top: 8px; 
-                    font-size: 14px;
-                }
-                .filters { 
-                    background: #f8f9fa; 
-                    padding: 15px; 
-                    border-radius: 8px; 
-                    margin-bottom: 20px; 
-                    font-size: 12px;
-                }
-                table { 
-                    width: 100%; 
-                    border-collapse: collapse; 
-                    margin-bottom: 20px; 
-                    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-                    border-radius: 8px;
-                    overflow: hidden;
-                }
-                th { 
-                    background: #FF6B6B; 
-                    color: white; 
-                    font-weight: bold; 
-                    padding: 10px 6px; 
-                    text-align: left; 
-                    font-size: 11px;
-                }
-                td { 
-                    padding: 8px 6px; 
-                    border-bottom: 1px solid #dee2e6; 
-                    font-size: 10px;
-                }
-                tr:nth-child(even) { 
-                    background-color: #f8f9fa; 
-                }
-                .total-row { 
-                    background: #FFC107 !important; 
-                    font-weight: bold; 
-                    color: #333;
-                }
-                .amount { 
-                    text-align: right; 
-                    font-weight: 500;
-                }
-                .summary-cards {
-                    display: flex;
-                    justify-content: space-around;
-                    margin: 20px 0;
-                    gap: 15px;
-                }
-                .summary-card {
-                    background: linear-gradient(135deg, #FF6B6B 0%, #FF8E8E 100%);
-                    color: white;
-                    padding: 15px;
-                    border-radius: 8px;
-                    text-align: center;
-                    flex: 1;
-                }
-                .summary-card h3 {
-                    margin: 0 0 5px 0;
-                    font-size: 14px;
-                    opacity: 0.9;
-                }
-                .summary-card .value {
-                    font-size: 18px;
-                    font-weight: bold;
-                }
-                .footer {
-                    text-align: center;
-                    margin-top: 30px;
-                    padding-top: 20px;
-                    border-top: 1px solid #dee2e6;
-                    color: #666;
-                    font-size: 12px;
-                }
-            </style>
-        </head>
-        <body>
-            <div class="container">
-                <div class="header">
-                    <h1>RETURN ORDERS REPORT</h1>
-                    <div class="date-range">Period: ${dateRange}</div>
-                    <div class="date-range">Generated on: ${moment().format('DD-MM-YYYY HH:mm:ss')}</div>
-                </div>
+        const sum = (key) => returnOrders.reduce((acc, o) => acc + (Number(o[key]) || 0), 0);
+        const rtoCount = returnOrders.filter((o) => o.returnBy === 'RTO').length;
+        const customerCount = returnOrders.filter((o) => o.returnBy === 'Customer').length;
 
-                <div class="filters">
-                    <strong>Applied Filters:</strong> 
-                    ${filters.company && filters.company !== 'all' ? `Company: ${filters.company} | ` : ''}
-                    ${filters.returnReason && filters.returnReason !== 'all' ? `Return Reason: ${filters.returnReason} | ` : ''}
-                    ${filters.returnBy && filters.returnBy !== 'all' ? `Return By: ${filters.returnBy} | ` : ''}
-                    Date Range: ${dateRange}
-                </div>
-        `;
+        const columns = [
+            { header: 'Date', width: 52 },
+            { header: 'Product', width: '*' },
+            { header: 'Qty', width: 26, align: 'center' },
+            { header: 'Price', width: 48, align: 'right' },
+            { header: 'Total', width: 52, align: 'right' },
+            { header: 'Company', width: 62 },
+            { header: 'Platforms', width: 62 },
+            { header: 'Return Reason', width: 60 },
+            { header: 'Return By', width: 46 },
+        ];
 
-        // Summary cards
-        let totalQty = 0;
-        let totalAmount = 0;
-        let rtoCount = 0;
-        let customerCount = 0;
+        const rows = returnOrders.map((order) => [
+            layout.formatDate(order.date),
+            order.product,
+            layout.count(order.qty),
+            layout.money(order.price),
+            layout.money(order.totalPrice),
+            order.company || '',
+            Array.isArray(order.platforms) ? order.platforms.join(', ') : (order.platforms || ''),
+            order.returnReason || '',
+            order.returnBy || '',
+        ]);
 
-        returnOrders.forEach(order => {
-            totalQty += order.qty;
-            totalAmount += order.totalPrice;
-            if (order.returnBy === 'RTO') rtoCount++;
-            if (order.returnBy === 'Customer') customerCount++;
-        });
+        const appliedFilters = [
+            filters.company && filters.company !== 'all' ? `Company: ${filters.company}` : null,
+            filters.returnReason && filters.returnReason !== 'all' ? `Return Reason: ${filters.returnReason}` : null,
+            filters.returnBy && filters.returnBy !== 'all' ? `Return By: ${filters.returnBy}` : null,
+            `Date Range: ${dateRange}`,
+        ].filter(Boolean).join('   |   ');
 
-        html += `
-            <div class="summary-cards">
-                <div class="summary-card">
-                    <h3>Total Returns</h3>
-                    <div class="value">${returnOrders.length}</div>
-                </div>
-                <div class="summary-card">
-                    <h3>Total Quantity</h3>
-                    <div class="value">${totalQty}</div>
-                </div>
-                <div class="summary-card">
-                    <h3>Total Amount</h3>
-                    <div class="value">₹${totalAmount.toFixed(2)}</div>
-                </div>
-                <div class="summary-card">
-                    <h3>RTO Returns</h3>
-                    <div class="value">${rtoCount}</div>
-                </div>
-                <div class="summary-card">
-                    <h3>Customer Returns</h3>
-                    <div class="value">${customerCount}</div>
-                </div>
-            </div>
+        const content = layout.reportHeader('RETURN ORDERS REPORT', accent, [
+            `Period: ${dateRange}`,
+            `Generated on: ${moment().format('DD-MM-YYYY HH:mm:ss')}`,
+        ]);
 
-            <table>
-                <thead>
-                    <tr>
-                        <th>Date</th>
-                        <th>Product</th>
-                        <th>Qty</th>
-                        <th>Price</th>
-                        <th>Total</th>
-                        <th>Company</th>
-                        <th>Platforms</th>
-                        <th>Return Reason</th>
-                        <th>Return By</th>
-                    </tr>
-                </thead>
-                <tbody>
-        `;
+        content.push(layout.filtersBox(appliedFilters));
 
-        returnOrders.forEach(order => {
-            html += `
-                <tr>
-                    <td>${moment(order.date).format('DD-MM-YYYY')}</td>
-                    <td>${order.product}</td>
-                    <td>${order.qty}</td>
-                    <td class="amount">₹${order.price}</td>
-                    <td class="amount">₹${order.totalPrice}</td>
-                    <td>${order.company}</td>
-                    <td>${Array.isArray(order.platforms) ? order.platforms.join(', ') : order.platforms}</td>
-                    <td>${order.returnReason}</td>
-                    <td>${order.returnBy}</td>
-                </tr>
-            `;
-        });
+        content.push(layout.summaryCards([
+            { label: 'Total Returns', value: String(returnOrders.length) },
+            { label: 'Total Quantity', value: layout.count(sum('qty')) },
+            { label: 'Total Amount', value: layout.money(sum('totalPrice')) },
+            { label: 'RTO Returns', value: String(rtoCount) },
+            { label: 'Customer Returns', value: String(customerCount) },
+        ], accent));
 
-        html += `
-                <tr class="total-row">
-                    <td colspan="2"><strong>TOTAL</strong></td>
-                    <td><strong>${totalQty}</strong></td>
-                    <td class="amount"><strong>₹${returnOrders.reduce((sum, order) => sum + order.price, 0).toFixed(2)}</strong></td>
-                    <td class="amount"><strong>₹${totalAmount.toFixed(2)}</strong></td>
-                    <td colspan="4"></td>
-                </tr>
-            </tbody>
-            </table>
+        content.push(layout.dataTable({
+            columns,
+            rows,
+            fontSize: 7,
+            totalRow: [
+                ...layout.totalCell('TOTAL', { colSpan: 2 }),
+                { text: layout.count(sum('qty')), bold: true, alignment: 'center' },
+                { text: layout.money(sum('price')), bold: true, alignment: 'right' },
+                { text: layout.money(sum('totalPrice')), bold: true, alignment: 'right' },
+                ...layout.totalCell('', { colSpan: 4 }),
+            ],
+            accent,
+        }));
 
-            <div class="footer">
-                <p>This report was generated automatically by Prapatti Store Admin System</p>
-                <p>For any queries, please contact the administration team</p>
-            </div>
-        </div>
-        </body>
-        </html>
-        `;
+        content.push(layout.reportFooter());
 
-        return html;
+        return layout.documentShell({ title: 'RETURN ORDERS REPORT', content });
     },
 
     // Generate PDF report
@@ -542,51 +394,14 @@ module.exports = {
 
             // Generate HTML content
             const filters = { company, returnReason, returnBy };
-            const htmlContent = module.exports.generateReturnOrderReportHTML(returnOrders, filters, startDate, endDate);
+            const docDefinition = module.exports.buildReturnOrderReportDocument(returnOrders, filters, startDate, endDate);
 
-            // Launch browser and generate PDF
-            const browser = await puppeteer.launch({
-                headless: true,
-                args: ['--no-sandbox', '--disable-setuid-sandbox']
-            });
-            
-            const page = await browser.newPage();
-            await page.setContent(htmlContent, { waitUntil: 'networkidle0' });
-            
-            const pdfBuffer = await page.pdf({
-                format: 'A4',
-                margin: {
-                    top: '20mm',
-                    right: '10mm',
-                    bottom: '20mm',
-                    left: '10mm'
-                },
-                printBackground: true,
-                displayHeaderFooter: true,
-                headerTemplate: '<div></div>',
-                footerTemplate: `
-                    <div style="font-size: 10px; text-align: center; width: 100%; margin: 0 10mm;">
-                        <span class="pageNumber"></span> / <span class="totalPages"></span>
-                    </div>
-                `
-            });
+            const pdfBuffer = await renderPdf(docDefinition);
 
-            await browser.close();
-
-            // Set response headers
-            res.setHeader('Content-Type', 'application/pdf');
-            res.setHeader('Content-Disposition', 'attachment; filename=return_orders_report.pdf');
-            res.setHeader('Content-Length', pdfBuffer.length);
-
-            res.send(pdfBuffer);
+            sendPdf(res, pdfBuffer, 'return_orders_report.pdf');
 
         } catch (err) {
-            console.error('PDF generation error:', err);
-            return res.status(500).json({
-                statusCode: 500,
-                message: 'PDF generation failed',
-                error: err.message
-            });
+            return sendPdfError(res, err, 'Return order report PDF');
         }
     },
 };
