@@ -2,3 +2,6 @@
 node_modules/
 downloads/
 
+
+# Written by the Playwright e2e backend
+.e2e-token.json

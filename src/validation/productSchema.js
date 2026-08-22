@@ -1,0 +1,234 @@
+"use strict";
+
+const { z } = require("zod");
+
+// Input validation for the product endpoints. Written against zod 4.
+//
+// WHY THE COERCION IS HAND-ROLLED
+// Product create/update go through multer as multipart/form-data, so every
+// field arrives as a STRING: req.body.price is "100", not 100.
+//
+// The obvious `z.coerce.number()` is WRONG here, because Number("") === 0.
+// An empty form field would silently become a stock of 0 or a price of 0 --
+// and since 0 is a legitimate value for both (out of stock but still listed,
+// or a free promo item) there is no way to reject it after the fact. Empty
+// has to be caught BEFORE coercion, which is what the first refine does.
+//
+// WHY NOT `if (!price)`
+// The house pattern elsewhere in this codebase is `if (!a || !b) return 400`.
+// Since !0 is true, that rejects stock 0 and price 0 as "All fields are
+// required". This module exists so those values work.
+//
+//   ""      -> "Stock is required"        (NOT 0)
+//   " 20 "  -> 20
+//   "abc"   -> "Stock must be a number"
+//   "1.5"   -> "Stock must be a whole number"
+//   "-3"    -> "Stock cannot be negative"
+//   0       -> 0                          (valid)
+
+const MAX_STOCK = 10_000_000;
+const MAX_PRICE = 10_000_000;
+
+/** Present, numeric, whole, non-negative. Zero allowed. */
+const wholeNonNegative = (label, max) =>
+    z
+        .any()
+        .refine(
+            (v) => v !== undefined && v !== null && String(v).trim() !== "",
+            `${label} is required`
+        )
+        .transform((v) => Number(String(v).trim()))
+        .refine(Number.isFinite, `${label} must be a number`)
+        .refine(Number.isInteger, `${label} must be a whole number`)
+        .refine((n) => n >= 0, `${label} cannot be negative`)
+        .refine((n) => n <= max, `${label} is unrealistically large`);
+
+/** Present, numeric, non-negative. Decimals allowed. Zero allowed. */
+const money = (label) =>
+    z
+        .any()
+        .refine(
+            (v) => v !== undefined && v !== null && String(v).trim() !== "",
+            `${label} is required`
+        )
+        .transform((v) => Number(String(v).trim()))
+        .refine(Number.isFinite, `${label} must be a number`)
+        .refine((n) => n >= 0, `${label} cannot be negative`)
+        .refine((n) => n <= MAX_PRICE, `${label} is unrealistically large`);
+
+/** Present, numeric, whole, non-zero. Sign is checked per reason below. */
+const signedNonZero = (label) =>
+    z
+        .any()
+        .refine(
+            (v) => v !== undefined && v !== null && String(v).trim() !== "",
+            `${label} is required`
+        )
+        .transform((v) => Number(String(v).trim()))
+        .refine(Number.isFinite, `${label} must be a number`)
+        .refine(Number.isInteger, `${label} must be a whole number`)
+        .refine((n) => n !== 0, `${label} cannot be zero`)
+        .refine((n) => Math.abs(n) <= MAX_STOCK, `${label} is unrealistically large`);
+
+const productName = z
+    .string({ error: "Name is required" })
+    .trim()
+    .min(1, "Name is required")
+    .max(120, "Name is too long");
+
+/** POST /add-product. The image is a file, validated by multer, not here. */
+const createProductSchema = z.object({
+    name: productName,
+    price: money("Price"),
+    totalStock: wholeNonNegative("Stock", MAX_STOCK),
+});
+
+/**
+ * PUT /update-product/:id.
+ *
+ * Deliberately has NO stock field. Stock moves only through adjustStock,
+ * which writes a ledger entry in the same transaction. Accepting a stock
+ * value here would let an edit bypass the ledger and silently break the
+ * invariant with no audit trail. The controller whitelists from this schema.
+ */
+// Every field is optional, and an empty object is VALID here on purpose: a
+// user may be replacing only the photo, and the uploaded file is not a body
+// field, so this schema cannot see it. Requiring at least one field would
+// reject an image-only edit. The controller decides whether anything actually
+// changed, because only it knows about req.file.
+const updateProductSchema = z.object({
+    name: productName.optional(),
+    price: money("Price").optional(),
+});
+
+const REASONS = ["order", "return", "restock", "correction"];
+
+// Which direction each reason is allowed to move stock.
+//   order      takes stock out
+//   return     customer sent it back
+//   restock    you bought more in
+//   correction fixes a past mistake, so it may go either way
+//
+// Without this, "order: +10" is accepted and both the graph and the audit
+// history stop meaning anything.
+const REASON_SIGN = {
+    order: "negative",
+    return: "positive",
+    restock: "positive",
+    correction: "any",
+};
+
+/** POST /adjust-stock/:id */
+const adjustStockSchema = z
+    .object({
+        delta: signedNonZero("Quantity"),
+        reason: z.enum(REASONS, {
+            error: `Reason must be one of: ${REASONS.join(", ")}`,
+        }),
+        note: z.string().trim().max(200).optional(),
+        // Generated by the browser, one per button press, reused on retry.
+        // Required, so a caller cannot opt out of double-apply protection.
+        idempotencyKey: z
+            .string({ error: "idempotencyKey is required" })
+            .trim()
+            .min(8, "idempotencyKey is required")
+            .max(100, "idempotencyKey is too long"),
+    })
+    .refine((v) => REASON_SIGN[v.reason] !== "negative" || v.delta < 0, {
+        message: "An order must reduce stock, so the quantity has to be negative",
+        path: ["delta"],
+    })
+    .refine((v) => REASON_SIGN[v.reason] !== "positive" || v.delta > 0, {
+        message: "A return or restock must increase stock, so the quantity has to be positive",
+        path: ["delta"],
+    });
+
+/**
+ * GET /audit-history query params.
+ *
+ * page/limit are optional and fall back to their defaults, so `?` with no
+ * query string is valid. `.optional()` has to come BEFORE `.transform()`, or
+ * zod 4 rejects an absent key as nonoptional before the transform can supply
+ * the default.
+ */
+const auditQuerySchema = z.object({
+    page: z
+        .any()
+        .optional()
+        .transform((v) => (v === undefined || v === null || String(v).trim() === "" ? 1 : Number(v)))
+        .refine((n) => Number.isInteger(n) && n >= 1, "page must be a positive whole number"),
+    limit: z
+        .any()
+        .optional()
+        .transform((v) => (v === undefined || v === null || String(v).trim() === "" ? 20 : Number(v)))
+        .refine((n) => Number.isInteger(n) && n >= 1 && n <= 100, "limit must be between 1 and 100"),
+    productId: z.string().trim().min(1).optional(),
+});
+
+/** GET /stock-summary query params. Both optional; absent means "today". */
+const summaryQuerySchema = z.object({
+    from: z.string().trim().min(1).optional(),
+    to: z.string().trim().min(1).optional(),
+});
+
+/**
+ * GET /stock-series query params.
+ * Absent period means daily; absent from/to means the server's default window
+ * (current month for daily, last 12 months for monthly).
+ */
+const seriesQuerySchema = z.object({
+    period: z
+        .any()
+        .optional()
+        .transform((v) => (v === undefined || String(v).trim() === "" ? "daily" : String(v).trim()))
+        .refine((v) => v === "daily" || v === "monthly", "period must be daily or monthly"),
+    from: z.string().trim().min(1).optional(),
+    to: z.string().trim().min(1).optional(),
+});
+
+/**
+ * Flatten zod issues into { field: [messages] }.
+ *
+ * Built from error.issues rather than error.flatten(), because issues is
+ * stable across zod major versions while flatten() is not.
+ */
+function fieldErrors(error) {
+    const out = {};
+    for (const issue of error.issues) {
+        const key = issue.path.length ? issue.path.join(".") : "_";
+        (out[key] = out[key] || []).push(issue.message);
+    }
+    return out;
+}
+
+/**
+ * Parse `data`, returning { ok: true, data } or { ok: false, fields, message }.
+ * Keeps every controller's validation branch to two lines.
+ */
+function validate(schema, data) {
+    const parsed = schema.safeParse(data);
+    if (parsed.success) return { ok: true, data: parsed.data };
+
+    const fields = fieldErrors(parsed.error);
+    const first = Object.values(fields)[0];
+    return {
+        ok: false,
+        fields,
+        message: (first && first[0]) || "Validation failed",
+    };
+}
+
+module.exports = {
+    MAX_STOCK,
+    MAX_PRICE,
+    REASONS,
+    REASON_SIGN,
+    createProductSchema,
+    updateProductSchema,
+    adjustStockSchema,
+    auditQuerySchema,
+    summaryQuerySchema,
+    seriesQuerySchema,
+    fieldErrors,
+    validate,
+};
