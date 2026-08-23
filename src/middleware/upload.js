@@ -5,10 +5,15 @@ const multer = require("multer");
 // Product image upload.
 //
 // memoryStorage, because the buffer goes straight to Cloudinary and is never
-// written to this server's disk. The 2MB cap is what keeps that safe: without
-// it, a large upload would be buffered in RAM in full.
+// written to this server's disk. The cap is what keeps that safe: the whole
+// file sits in RAM for the duration of the request, so this number is also a
+// per-upload memory budget. `files: 1` means one concurrent upload holds at
+// most this much.
+//
+// The table never downloads the original anyway -- thumb() asks Cloudinary for
+// a 96px variant -- so a large upload costs upload time, not page weight.
 
-const MAX_FILE_BYTES = 2 * 1024 * 1024; // 2MB
+const MAX_FILE_BYTES = 15 * 1024 * 1024; // 15MB
 const ALLOWED_MIME = /^image\/(jpe?g|png|webp|gif)$/;
 
 const upload = multer({

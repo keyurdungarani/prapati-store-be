@@ -94,6 +94,31 @@ const notFound = (res) =>
 const serverError = (res) =>
     res.status(500).json({ statusCode: 500, message: "Internal Server Error" });
 
+/**
+ * Answer a failed Cloudinary upload.
+ *
+ * Our own multer cap is deliberately generous, so Cloudinary's account limit
+ * can now be the stricter of the two. When it rejects a file it says exactly
+ * why ("File size too large. Got X. Maximum is Y.") and that message is far
+ * more useful than a blanket 500 -- it names the real ceiling, which is the
+ * one thing the user needs in order to act.
+ *
+ * Anything that is not a client-side problem stays a 500.
+ */
+const uploadFailed = (res, err) => {
+    console.error("Cloudinary upload failed:", err);
+
+    if (err && err.http_code === 400 && err.message) {
+        const tooLarge = /file size too large/i.test(err.message);
+        return res.status(tooLarge ? 413 : 400).json({
+            statusCode: tooLarge ? 413 : 400,
+            message: err.message,
+        });
+    }
+
+    return serverError(res);
+};
+
 module.exports = {
     // ---------------------------------------------------------------- create
     addProduct: async (req, res) => {
@@ -115,8 +140,7 @@ module.exports = {
             try {
                 image = await imageStore.uploadImage(req.file.buffer);
             } catch (err) {
-                console.error("Cloudinary upload failed:", err);
-                return serverError(res);
+                return uploadFailed(res, err);
             }
 
             const session = await mongoose.startSession();
@@ -235,8 +259,7 @@ module.exports = {
                 try {
                     newImage = await imageStore.uploadImage(req.file.buffer);
                 } catch (err) {
-                    console.error("Cloudinary upload failed:", err);
-                    return serverError(res);
+                    return uploadFailed(res, err);
                 }
                 updates.image = newImage;
                 changes.push({

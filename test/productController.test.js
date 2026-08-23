@@ -151,6 +151,71 @@ describe("addProduct", () => {
         expect(res.body.fields.totalStock[0]).toMatch(/whole number/i);
     });
 
+    it("accepts an image up to the 15MB limit", async () => {
+        const almostLimit = Buffer.alloc(14 * 1024 * 1024, 1);
+
+        const res = await request(app)
+            .post("/api/product/add-product")
+            .set(...auth(userId))
+            .field("name", "big photo")
+            .field("price", "10")
+            .field("totalStock", "5")
+            .attach("image", almostLimit, "big.png");
+
+        expect(res.status).toBe(201);
+    });
+
+    it("rejects an image over the limit with a size message, not a generic 500", async () => {
+        const tooBig = Buffer.alloc(16 * 1024 * 1024, 1);
+
+        const res = await request(app)
+            .post("/api/product/add-product")
+            .set(...auth(userId))
+            .field("name", "huge photo")
+            .field("price", "10")
+            .field("totalStock", "5")
+            .attach("image", tooBig, "huge.png");
+
+        expect(res.status).toBe(413);
+        expect(res.body.message).toMatch(/too large/i);
+        expect(res.body.message).toMatch(/15MB/i);
+    });
+
+    // Our cap is generous enough that Cloudinary's own account limit can now
+    // be the stricter of the two. Its rejection names the real ceiling, which
+    // is far more actionable than "Internal Server Error".
+    it("passes a Cloudinary size rejection through as 413 with its message", async () => {
+        uploadImage.mockRejectedValueOnce(
+            Object.assign(new Error("File size too large. Got 15728640. Maximum is 10485760."), {
+                http_code: 400,
+            })
+        );
+
+        const res = await createProduct();
+
+        expect(res.status).toBe(413);
+        expect(res.body.message).toMatch(/Maximum is 10485760/);
+    });
+
+    it("passes other Cloudinary 400s through as 400", async () => {
+        uploadImage.mockRejectedValueOnce(
+            Object.assign(new Error("Invalid image file"), { http_code: 400 })
+        );
+
+        const res = await createProduct();
+
+        expect(res.status).toBe(400);
+        expect(res.body.message).toMatch(/invalid image file/i);
+    });
+
+    it("still returns 500 for a Cloudinary outage", async () => {
+        uploadImage.mockRejectedValueOnce(new Error("socket hang up"));
+
+        const res = await createProduct();
+
+        expect(res.status).toBe(500);
+    });
+
     it("cleans up the uploaded image when the write fails", async () => {
         const spy = vi.spyOn(Product, "create").mockRejectedValueOnce(new Error("boom"));
         const res = await createProduct();

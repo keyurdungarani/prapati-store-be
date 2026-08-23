@@ -226,7 +226,11 @@ describe("getStockSeries", () => {
 
     it("honours an explicit from/to window", async () => {
         const id = await createProduct(1000, 100);
-        const target = moment.tz(TZ).subtract(3, "days");
+        // startOf("day") first, THEN add hours. Without it the entry inherits
+        // the current time of day, and +9h crosses midnight whenever the suite
+        // runs after 15:00 -- pushing the entry out of the requested window and
+        // failing only in the afternoon.
+        const target = moment.tz(TZ).subtract(3, "days").startOf("day");
         await logAt(id, -42, target.clone().add(9, "hours").toDate());
 
         const day = target.format("YYYY-MM-DD");
