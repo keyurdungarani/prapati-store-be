@@ -27,4 +27,8 @@ router.get('/stock-summary', authUser, controller.getStockSummary);
 // Day-by-day or month-by-month movement, for the chart.
 router.get('/stock-series', authUser, controller.getStockSeries);
 
+// Downloadable snapshot of current stock. POST to match the other modules'
+// report endpoints, even though this one takes no date range.
+router.post('/stock-report-pdf', authUser, controller.generateProductStockReportPDF);
+
 module.exports = router;

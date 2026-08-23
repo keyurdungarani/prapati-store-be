@@ -18,6 +18,7 @@ const ACCENT = {
     taproll: "#6C5CE7",
     kraftMailer: "#E17055",
     summary: "#2c3e50",
+    productStock: "#0984E3",
 };
 
 const INK = "#212529";

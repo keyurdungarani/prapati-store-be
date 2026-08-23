@@ -9,6 +9,9 @@ const ProductLog = require("../../models/productLog");
 // would capture the function values at require time, which makes the image
 // backend impossible to substitute in a test without a production-only seam.
 const imageStore = require("../../config/cloudinary");
+const { renderPdf, sendPdf, sendPdfError } = require("../../utils/pdfService");
+const layout = require("../../utils/reportLayout");
+const moment = require("moment-timezone");
 const {
     dayRange,
     seriesRange,
@@ -758,6 +761,105 @@ module.exports = {
         } catch (err) {
             console.error(err);
             return serverError(res);
+        }
+    },
+    // ------------------------------------------------------------ pdf report
+    //
+    // A snapshot of what is on the shelf RIGHT NOW, not a date range. The
+    // other modules report over a period because their rows are dated events;
+    // stock is a current balance, so "as on <timestamp>" is the honest framing.
+    //
+    // Built from the database rather than from anything the browser sends, so
+    // the PDF is the real inventory even if the on-screen table is filtered by
+    // a search box.
+    buildProductStockReportDocument: (products, generatedAt = new Date()) => {
+        const accent = layout.ACCENT.productStock;
+        const tz = timezone();
+
+        const totalUnits = products.reduce((acc, p) => acc + (Number(p.currentStock) || 0), 0);
+        const totalValue = products.reduce(
+            (acc, p) => acc + (Number(p.currentStock) || 0) * (Number(p.price) || 0),
+            0
+        );
+        const outOfStock = products.filter((p) => (Number(p.currentStock) || 0) === 0).length;
+
+        const columns = [
+            { header: "Product", width: "*" },
+            { header: "Stock", width: 55, align: "center" },
+            { header: "Price", width: 80, align: "right" },
+            { header: "Total Price", width: 95, align: "right" },
+            { header: "Last Updated", width: 85, align: "center" },
+        ];
+
+        const rows = products.map((p) => [
+            p.name,
+            layout.count(p.currentStock),
+            layout.money(p.price),
+            layout.money((Number(p.currentStock) || 0) * (Number(p.price) || 0)),
+            layout.formatDate(p.updatedAt),
+        ]);
+
+        const content = layout.reportHeader("PRODUCT STOCK REPORT", accent, [
+            `As on: ${moment(generatedAt).tz(tz).format("DD-MM-YYYY HH:mm:ss")}`,
+        ]);
+
+        content.push(
+            layout.summaryCards(
+                [
+                    { label: "Total Products", value: String(products.length) },
+                    { label: "Units in Stock", value: layout.count(totalUnits) },
+                    { label: "Stock Value", value: layout.money(totalValue) },
+                    {
+                        label: "Out of Stock",
+                        value: String(outOfStock),
+                        // Only shout about it when there is something to shout
+                        // about; a red zero reads as an alert that is not real.
+                        color: outOfStock > 0 ? layout.ACCENT.returns : undefined,
+                    },
+                ],
+                accent
+            )
+        );
+
+        content.push(
+            layout.dataTable({
+                columns,
+                rows,
+                totalRow: [
+                    { text: "TOTAL", bold: true },
+                    { text: layout.count(totalUnits), bold: true, alignment: "center" },
+                    { text: "", bold: true },
+                    { text: layout.money(totalValue), bold: true, alignment: "right" },
+                    { text: "" },
+                ],
+                accent,
+                emptyMessage: "No products in stock yet.",
+            })
+        );
+
+        content.push(layout.reportFooter());
+
+        return layout.documentShell({ title: "PRODUCT STOCK REPORT", content });
+    },
+
+    generateProductStockReportPDF: async (req, res) => {
+        try {
+            const products = await Product.find({ user: req.user.userId })
+                .sort({ name: 1 })
+                .lean();
+
+            const generatedAt = new Date();
+            const docDefinition = module.exports.buildProductStockReportDocument(
+                products,
+                generatedAt
+            );
+
+            const pdfBuffer = await renderPdf(docDefinition);
+
+            const stamp = moment(generatedAt).tz(timezone()).format("YYYY-MM-DD_HH-mm");
+            sendPdf(res, pdfBuffer, `product-stock-report_${stamp}.pdf`);
+        } catch (err) {
+            return sendPdfError(res, err, "Product stock report PDF");
         }
     },
 };
