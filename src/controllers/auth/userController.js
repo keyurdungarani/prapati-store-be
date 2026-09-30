@@ -72,6 +72,14 @@ module.exports = {
                 });
             }
 
+            // Checked after the password so an unapproved email isn't revealed to someone without the password.
+            if (user.isVerified !== true) {
+                return res.status(403).json({
+                    statusCode: 403,
+                    message: 'Your account is not approved yet. Please contact the administrator.'
+                });
+            }
+
             // Generate JWT token with expiration
             const token = jwt.sign(
                 { userId: user._id, email: user.email },

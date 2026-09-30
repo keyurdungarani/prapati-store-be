@@ -18,6 +18,11 @@ const userSchema = new mongoose.Schema({
         type: String,
         required: true
     },
+    // Set to true manually in the database to grant access.
+    isVerified: {
+        type: Boolean,
+        default: false
+    },
     createdAt: Date,
     updatedAt: Date,
 }, {
