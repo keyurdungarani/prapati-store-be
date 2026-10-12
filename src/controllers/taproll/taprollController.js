@@ -4,7 +4,7 @@ const ExcelJS = require('exceljs');
 const { renderPdf, sendPdf, sendPdfError } = require('../../utils/pdfService');
 const layout = require('../../utils/reportLayout');
 
-const VALID_PLATFORMS = ['Amazon Taproll', 'Flipkart Taproll', 'Meesho Taproll'];
+const VALID_PLATFORMS = ['Amazon Taproll', 'Flipkart Taproll', 'Meesho Taproll', 'Other Taproll'];
 
 module.exports = {
     // Add a new taproll
@@ -280,6 +280,7 @@ module.exports = {
             { label: 'Amazon', value: String(countBy('Amazon Taproll')) },
             { label: 'Flipkart', value: String(countBy('Flipkart Taproll')) },
             { label: 'Meesho', value: String(countBy('Meesho Taproll')) },
+            { label: 'Other', value: String(countBy('Other Taproll')) },
         ], accent));
 
         content.push(layout.dataTable({

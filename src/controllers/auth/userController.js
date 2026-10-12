@@ -2,6 +2,9 @@ const User = require('../../models/auth');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 
+// Must match the password rule in the frontend's RegisterForm.
+const PASSWORD_RULE = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[\W_]).{8,}$/;
+
 module.exports = {
     register: async function (req, res) {
         try {
@@ -91,6 +94,77 @@ module.exports = {
                 statusCode: 200,
                 message: 'Login successful',
                 data: { token }
+            });
+
+        } catch (error) {
+            return res.status(500).json({
+                statusCode: 500,
+                message: "Internal Server Error"
+            });
+        }
+    },
+
+    getProfile: async function (req, res) {
+        try {
+            const user = await User.findById(req.user.userId).select('name email').lean();
+            if (!user) {
+                return res.status(404).json({
+                    statusCode: 404,
+                    message: 'User not found'
+                });
+            }
+
+            return res.status(200).json({
+                statusCode: 200,
+                message: 'Profile fetched successfully',
+                data: { name: user.name, email: user.email }
+            });
+
+        } catch (error) {
+            return res.status(500).json({
+                statusCode: 500,
+                message: "Internal Server Error"
+            });
+        }
+    },
+
+    changePassword: async function (req, res) {
+        try {
+            const { newPassword, confirmPassword } = req.body;
+
+            if (!newPassword || !confirmPassword) {
+                return res.status(400).json({
+                    statusCode: 400,
+                    message: 'New password and confirm password are required'
+                });
+            }
+
+            if (newPassword !== confirmPassword) {
+                return res.status(400).json({
+                    statusCode: 400,
+                    message: 'Passwords do not match'
+                });
+            }
+
+            if (!PASSWORD_RULE.test(newPassword)) {
+                return res.status(400).json({
+                    statusCode: 400,
+                    message: 'Password must be at least 8 characters and include uppercase, lowercase, number & special char'
+                });
+            }
+
+            const hashedPassword = await bcrypt.hash(newPassword, 10);
+            const user = await User.findByIdAndUpdate(req.user.userId, { password: hashedPassword });
+            if (!user) {
+                return res.status(404).json({
+                    statusCode: 404,
+                    message: 'User not found'
+                });
+            }
+
+            return res.status(200).json({
+                statusCode: 200,
+                message: 'Password changed successfully'
             });
 
         } catch (error) {

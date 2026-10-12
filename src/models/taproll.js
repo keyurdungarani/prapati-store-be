@@ -25,7 +25,7 @@ const taprollSchema = new mongoose.Schema({
     },
     platform: {
         type: String,
-        enum: ['Amazon Taproll', 'Flipkart Taproll', 'Meesho Taproll'],
+        enum: ['Amazon Taproll', 'Flipkart Taproll', 'Meesho Taproll', 'Other Taproll'],
         required: true
     }
 }, { timestamps: true });
